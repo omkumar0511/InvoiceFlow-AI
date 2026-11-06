@@ -54,3 +54,37 @@ export const parseRequestSchema = z.object({
 });
 
 export type ParseRequest = z.infer<typeof parseRequestSchema>;
+
+export const createInvoiceRequestSchema = z.object({
+  client_name: z
+    .string({ required_error: "Client name is required" })
+    .trim()
+    .min(1, "Client name cannot be empty"),
+  client_email: z
+    .string({ required_error: "Client email is required" })
+    .trim()
+    .email("A valid client email address is required"),
+  currency: z
+    .string()
+    .trim()
+    .length(3, "Currency code must be a 3-letter ISO code")
+    .toUpperCase()
+    .default(env.DEFAULT_CURRENCY || "USD"),
+  due_date: z
+    .string({ required_error: "Due date is required" })
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be formatted as YYYY-MM-DD")
+    .refine((date) => {
+      const today = new Date().toISOString().split("T")[0];
+      return date >= today;
+    }, "Due date cannot be in the past"),
+  notes: z.string().optional().default(""),
+  items: z
+    .array(invoiceItemSchema)
+    .min(1, "Invoice must include at least one item"),
+  send_now: z.boolean().default(false),
+  original_prompt: z.string().optional().default(""),
+});
+
+export type CreateInvoiceRequest = z.infer<typeof createInvoiceRequestSchema>;
+

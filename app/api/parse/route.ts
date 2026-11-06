@@ -26,8 +26,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { prompt } = validation.data;
-    const result = await parseInvoice(prompt);
+    const { prompt, referenceDate } = validation.data;
+    const result = await parseInvoice(prompt, { referenceDate });
 
     return NextResponse.json({
       success: true,

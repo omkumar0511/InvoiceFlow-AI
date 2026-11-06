@@ -3,7 +3,7 @@ import { env } from "./env";
 
 export const invoiceItemSchema = z.object({
   name: z.string().min(1, "Item name is required"),
-  description: z.string().optional().default(""),
+  description: z.string().optional(),
   quantity: z
     .number()
     .positive("Quantity must be greater than 0")
@@ -46,12 +46,20 @@ export const parsedInvoiceSchema = z.object({
 
 export type ParsedInvoice = z.infer<typeof parsedInvoiceSchema>;
 
-export const parseRequestSchema = z.object({
-  prompt: z
-    .string({ required_error: "Invoice prompt text is required" })
-    .trim()
-    .min(1, "Prompt cannot be empty"),
-});
+export const parseRequestSchema = z
+  .object({
+    prompt: z.string().trim().min(1).optional(),
+    text: z.string().trim().min(1).optional(),
+    referenceDate: z.string().optional(),
+  })
+  .refine((data) => Boolean(data.prompt || data.text), {
+    message: "Invoice prompt text is required",
+    path: ["prompt"],
+  })
+  .transform((data) => ({
+    prompt: (data.prompt || data.text)!,
+    referenceDate: data.referenceDate,
+  }));
 
 export type ParseRequest = z.infer<typeof parseRequestSchema>;
 

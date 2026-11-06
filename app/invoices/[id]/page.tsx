@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -96,7 +96,7 @@ export default function InvoiceDetailPage() {
   const [isCancelling, setIsCancelling] = useState(false);
 
   // Fetch Invoice Details
-  const fetchInvoiceData = async () => {
+  const fetchInvoiceData = useCallback(async () => {
     if (!id) return;
     setIsLoading(true);
     setError(null);
@@ -121,11 +121,11 @@ export default function InvoiceDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     fetchInvoiceData();
-  }, [id]);
+  }, [fetchInvoiceData]);
 
   // Handle AI Reminder Drafting
   const handleDraftReminder = async (selectedTone = reminderTone) => {

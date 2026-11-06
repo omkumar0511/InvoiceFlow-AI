@@ -9,6 +9,14 @@ export const metadata: Metadata = {
   title: "InvoiceFlow AI - Natural Language Invoicing for Freelancers",
   description:
     "Turn plain English invoice descriptions into official PayPal Invoices using Google Gemini AI and PayPal Invoicing API.",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+      { url: "/favicon.ico" },
+    ],
+    apple: [{ url: "/icon.png" }],
+    shortcut: "/icon.png",
+  },
 };
 
 export default function RootLayout({

@@ -5,6 +5,7 @@ import {
   generateInvoiceNumber,
   sendInvoice,
   getInvoice,
+  listInvoices,
   PayPalApiError,
 } from "@/lib/paypal";
 import { dbOperations } from "@/lib/db";
@@ -165,6 +166,154 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         error: error?.message || "Failed to create invoice with PayPal.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const pageSize = parseInt(searchParams.get("page_size") || "50", 10);
+
+    const result = await listInvoices({
+      page,
+      pageSize,
+      totalCountRequired: true,
+    });
+
+    const rawItems = result.items || [];
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    let totalInvoicedCents = 0;
+    let paidCents = 0;
+    let outstandingCents = 0;
+    let overdueCents = 0;
+
+    let totalCount = 0;
+    let paidCount = 0;
+    let outstandingCount = 0;
+    let overdueCount = 0;
+    let draftCount = 0;
+    let cancelledCount = 0;
+
+    const processedInvoices = rawItems.map((inv) => {
+      const recipient = inv.primary_recipients?.[0]?.billing_info;
+      const clientName =
+        recipient?.name?.full_name ||
+        [recipient?.name?.given_name, recipient?.name?.surname]
+          .filter(Boolean)
+          .join(" ") ||
+        "Client";
+      const clientEmail = recipient?.email_address || "";
+
+      const dueDate = inv.detail?.payment_term?.due_date || "";
+      const createdDate =
+        inv.detail?.metadata?.create_time?.split("T")[0] ||
+        inv.detail?.invoice_date ||
+        "";
+
+      const amountVal = inv.amount?.value || "0.00";
+      const amountCents = toCents(amountVal);
+      const currency = inv.amount?.currency_code || env.DEFAULT_CURRENCY || "USD";
+
+      // Derive Overdue status
+      let computedStatus = (inv.status || "DRAFT").toUpperCase();
+      const isPaid = computedStatus === "PAID" || computedStatus === "MARKED_AS_PAID";
+      const isCancelled = computedStatus === "CANCELLED" || computedStatus === "REFUNDED";
+
+      if (!isPaid && !isCancelled && computedStatus !== "DRAFT" && dueDate && dueDate < todayStr) {
+        computedStatus = "OVERDUE";
+      }
+
+      // Aggregate decimal-safe stats
+      totalCount++;
+      if (!isCancelled) {
+        totalInvoicedCents += amountCents;
+      }
+
+      if (isPaid) {
+        paidCents += amountCents;
+        paidCount++;
+      } else if (isCancelled) {
+        cancelledCount++;
+      } else if (computedStatus === "OVERDUE") {
+        overdueCents += amountCents;
+        overdueCount++;
+      } else if (computedStatus === "DRAFT") {
+        draftCount++;
+      } else {
+        // Sent / Unpaid / Not overdue
+        outstandingCents += amountCents;
+        outstandingCount++;
+      }
+
+      // Merge local SQLite metadata
+      const meta = dbOperations.getInvoiceMeta(inv.id);
+
+      return {
+        id: inv.id,
+        invoice_number: inv.detail?.invoice_number || "—",
+        client_name: clientName,
+        client_email: clientEmail,
+        amount: fromCents(amountCents),
+        currency,
+        due_date: dueDate,
+        created_date: createdDate,
+        status: inv.status,
+        computed_status: computedStatus,
+        original_prompt: meta?.original_prompt || null,
+        local_created_at: meta?.created_at || null,
+        paypal_link: `https://www.sandbox.paypal.com/invoice/p/#${inv.id}`,
+      };
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        invoices: processedInvoices,
+        stats: {
+          total_invoiced: fromCents(totalInvoicedCents),
+          paid: fromCents(paidCents),
+          outstanding: fromCents(outstandingCents),
+          overdue: fromCents(overdueCents),
+          currency: env.DEFAULT_CURRENCY || "USD",
+          counts: {
+            total: totalCount,
+            paid: paidCount,
+            outstanding: outstandingCount,
+            overdue: overdueCount,
+            draft: draftCount,
+            cancelled: cancelledCount,
+          },
+        },
+        pagination: {
+          total_items: result.total_items || processedInvoices.length,
+          total_pages: result.total_pages || 1,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error("GET /api/invoices error:", error);
+
+    if (error instanceof PayPalApiError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          error_name: error.errorName,
+          debug_id: error.debugId,
+        },
+        { status: error.statusCode }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || "Failed to fetch invoices list from PayPal.",
       },
       { status: 500 }
     );

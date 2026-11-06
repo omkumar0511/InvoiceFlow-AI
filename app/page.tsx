@@ -263,7 +263,11 @@ export default function DashboardPage() {
       {/* FILTER & SEARCH CONTROLS */}
       <div className="mt-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         {/* Status Filter Chips */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filter invoices by status"
+        >
           {[
             { id: "ALL", label: "All", count: stats?.counts.total },
             { id: "SENT", label: "Sent", count: stats?.counts.outstanding },
@@ -277,7 +281,9 @@ export default function DashboardPage() {
               <button
                 key={chip.id}
                 onClick={() => setSelectedStatus(chip.id)}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                aria-pressed={isActive}
+                aria-label={`Show ${chip.label} invoices (${chip.count ?? 0})`}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
                   isActive
                     ? "bg-teal-600 text-white shadow-sm shadow-teal-600/20"
                     : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
@@ -302,8 +308,12 @@ export default function DashboardPage() {
 
         {/* Quick Search Input */}
         <div className="relative w-full sm:w-64">
+          <label htmlFor="search-invoices" className="sr-only">
+            Search invoices
+          </label>
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
+            id="search-invoices"
             type="text"
             placeholder="Search invoices..."
             value={searchQuery}

@@ -19,6 +19,8 @@ import {
   User,
   Mail,
   FileText,
+  Copy,
+  Check,
 } from "lucide-react";
 import { ParsedInvoice, InvoiceItemInput } from "@/lib/schemas";
 import { calculateInvoiceTotal, formatMoneyDisplay, fromCents, toCents } from "@/lib/money";
@@ -69,23 +71,21 @@ export default function NewInvoicePage() {
   const [items, setItems] = useState<InvoiceItemInput[]>([
     { name: "", description: "", quantity: 1, unit_price: 0 },
   ]);
+
+  // AI Feedback State
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [hasParsed, setHasParsed] = useState(false);
 
-  // Success state after creation
+  // Success / Error State
   const [createdInvoice, setCreatedInvoice] = useState<SuccessState | null>(null);
+  const [apiError, setApiError] = useState<{ message: string; debug_id?: string } | null>(null);
+  const [hasCopiedLink, setHasCopiedLink] = useState(false);
 
-  // Error state for PayPal API errors
-  const [apiError, setApiError] = useState<{
-    message: string;
-    debug_id?: string;
-  } | null>(null);
-
-  // Decimal-safe live total
+  // Live total computed with integer cents
   const liveTotal = calculateInvoiceTotal(items);
 
-  // Handle parsing natural language with AI
+  // Handle AI parsing
   const handleParseWithAI = async () => {
     if (!promptText.trim()) {
       toast.error("Please enter an invoice description first.");
@@ -96,36 +96,46 @@ export default function NewInvoicePage() {
     setApiError(null);
 
     try {
-      const res = await fetch("/api/parse", {
+      const response = await fetch("/api/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptText.trim() }),
+        body: JSON.stringify({
+          text: promptText.trim(),
+          referenceDate: new Date().toISOString().split("T")[0],
+        }),
       });
 
-      const json = await res.json();
+      const json = await response.json();
 
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "Failed to parse invoice description.");
+      if (!response.ok || !json.success) {
+        throw new Error(json.error || "Failed to parse invoice description");
       }
 
       const parsed: ParsedInvoice = json.data;
 
+      // Populate review form
       setClientName(parsed.client_name || "");
       setClientEmail(parsed.client_email || "");
       setCurrency(parsed.currency || "USD");
       setDueDate(parsed.due_date || "");
       setNotes(parsed.notes || "");
-      setItems(
-        parsed.items.length > 0
-          ? parsed.items
-          : [{ name: "", description: "", quantity: 1, unit_price: 0 }]
-      );
       setMissingFields(parsed.missing_fields || []);
       setConfidence(parsed.confidence ?? null);
-      setHasParsed(true);
 
+      if (parsed.items && parsed.items.length > 0) {
+        setItems(
+          parsed.items.map((it) => ({
+            name: it.name,
+            description: it.description || "",
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+          }))
+        );
+      }
+
+      setHasParsed(true);
       toast.success(
-        `AI successfully parsed invoice (${Math.round((parsed.confidence ?? 0.9) * 100)}% confidence)`
+        `Parsed invoice with ${Math.round((parsed.confidence ?? 0.9) * 100)}% confidence!`
       );
     } catch (err: any) {
       toast.error(err.message || "Failed to parse invoice.");
@@ -134,72 +144,66 @@ export default function NewInvoicePage() {
     }
   };
 
-  // Line item table helpers
+  // Item table management
   const handleItemChange = (
     index: number,
     field: keyof InvoiceItemInput,
-    val: string | number
+    value: any
   ) => {
-    setItems((prev) => {
-      const copy = [...prev];
-      if (field === "quantity") {
-        copy[index] = { ...copy[index], quantity: Math.max(1, Number(val) || 1) };
-      } else if (field === "unit_price") {
-        copy[index] = {
-          ...copy[index],
-          unit_price: Math.max(0, Number(val) || 0),
-        };
-      } else {
-        copy[index] = { ...copy[index], [field]: val };
-      }
-      return copy;
-    });
+    const updated = [...items];
+    if (field === "quantity") {
+      const num = parseFloat(value);
+      updated[index].quantity = isNaN(num) ? 0 : num;
+    } else if (field === "unit_price") {
+      const num = parseFloat(value);
+      updated[index].unit_price = isNaN(num) ? 0 : num;
+    } else {
+      (updated[index] as any)[field] = value;
+    }
+    setItems(updated);
   };
 
   const handleAddItem = () => {
-    setItems((prev) => [
-      ...prev,
-      { name: "", description: "", quantity: 1, unit_price: 0 },
-    ]);
+    setItems([...items, { name: "", description: "", quantity: 1, unit_price: 0 }]);
   };
 
   const handleRemoveItem = (index: number) => {
-    if (items.length <= 1) {
-      toast.error("Invoice must have at least one line item.");
-      return;
-    }
-    setItems((prev) => prev.filter((_, i) => i !== index));
+    if (items.length <= 1) return;
+    setItems(items.filter((_, i) => i !== index));
   };
 
-  // Submit invoice (Save as Draft or Create & Send)
+  // Form Submission
   const handleSubmit = async (sendNow: boolean) => {
     setApiError(null);
 
-    // Front-end validations
     if (!clientName.trim()) {
       toast.error("Client name is required.");
       return;
     }
 
     if (sendNow && !clientEmail.trim()) {
-      toast.error("Client email is required to send an invoice via PayPal.");
+      toast.error("Client email is required to send via PayPal.");
       return;
     }
 
     if (!dueDate) {
-      toast.error("Due date is required.");
+      toast.error("Please select a due date.");
       return;
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
-    if (dueDate < todayStr) {
+    // Validate due date is not in the past
+    const today = new Date().toISOString().split("T")[0];
+    if (dueDate < today) {
       toast.error("Due date cannot be in the past.");
       return;
     }
 
-    const validItems = items.filter((item) => item.name.trim().length > 0);
-    if (validItems.length === 0) {
-      toast.error("Please add at least one item with a name and price.");
+    // Validate line items
+    const invalidItem = items.find(
+      (item) => !item.name.trim() || item.quantity <= 0 || item.unit_price < 0
+    );
+    if (invalidItem) {
+      toast.error("All items must have a description, positive quantity, and non-negative price.");
       return;
     }
 
@@ -209,13 +213,13 @@ export default function NewInvoicePage() {
     try {
       const payload = {
         client_name: clientName.trim(),
-        client_email: clientEmail.trim(),
+        client_email: clientEmail.trim() || undefined,
         currency,
         due_date: dueDate,
-        notes: notes.trim(),
-        items: validItems,
+        notes: notes.trim() || undefined,
+        items,
         send_now: sendNow,
-        original_prompt: promptText,
+        original_prompt: promptText.trim() || undefined,
       };
 
       const res = await fetch("/api/invoices", {
@@ -252,6 +256,15 @@ export default function NewInvoicePage() {
     }
   };
 
+  // Copy PayPal URL
+  const handleCopyLink = () => {
+    if (!createdInvoice?.paypal_link) return;
+    navigator.clipboard.writeText(createdInvoice.paypal_link);
+    setHasCopiedLink(true);
+    toast.success("PayPal invoice link copied to clipboard!");
+    setTimeout(() => setHasCopiedLink(false), 2000);
+  };
+
   // Reset to create another invoice
   const handleReset = () => {
     setCreatedInvoice(null);
@@ -266,18 +279,25 @@ export default function NewInvoicePage() {
     setConfidence(null);
     setHasParsed(false);
     setApiError(null);
+    setHasCopiedLink(false);
   };
 
   // SUCCESS SCREEN
   if (createdInvoice) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-3xl border border-teal-200/80 bg-white p-8 sm:p-12 shadow-xl shadow-teal-500/5 dark:border-teal-900/50 dark:bg-slate-900 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950 dark:text-teal-400">
-            <CheckCircle2 className="h-10 w-10" />
+        <div className="overflow-hidden rounded-3xl border border-teal-200/80 bg-white p-8 sm:p-12 shadow-xl shadow-teal-500/5 dark:border-teal-900/50 dark:bg-slate-900 text-center animate-in zoom-in-95 duration-300">
+          {/* Animated celebratory checkmark */}
+          <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-teal-100 text-teal-600 dark:bg-teal-950 dark:text-teal-400 ring-8 ring-teal-50 dark:ring-teal-900/30">
+            <CheckCircle2 className="h-11 w-11 text-teal-600 dark:text-teal-400" />
+            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-teal-500"></span>
+            </span>
           </div>
 
           <span className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700 ring-1 ring-inset ring-teal-600/20 dark:bg-teal-950/60 dark:text-teal-300">
+            <Sparkles className="w-3 h-3 text-teal-600 dark:text-teal-400" />
             {createdInvoice.sent ? "Sent via PayPal Sandbox" : "Draft Created in PayPal"}
           </span>
 
@@ -324,23 +344,41 @@ export default function NewInvoicePage() {
               href={createdInvoice.paypal_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 py-3.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 hover:bg-teal-500 transition-all hover:scale-[1.02]"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 py-3.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 hover:bg-teal-500 transition-all hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <span>View Hosted PayPal Invoice</span>
               <ExternalLink className="h-4 w-4" />
             </a>
 
             <button
+              onClick={handleCopyLink}
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+              aria-label="Copy PayPal invoice link"
+            >
+              {hasCopiedLink ? (
+                <>
+                  <Check className="h-4 w-4 text-teal-600" />
+                  <span>Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" />
+                  <span>Copy Link</span>
+                </>
+              )}
+            </button>
+
+            <button
               onClick={handleReset}
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <RefreshCw className="h-4 w-4" />
-              <span>Create Another Invoice</span>
+              <span>Create Another</span>
             </button>
 
             <Link
               href="/"
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <span>Dashboard</span>
               <ArrowRight className="h-4 w-4" />
@@ -366,13 +404,13 @@ export default function NewInvoicePage() {
       {/* NATURAL LANGUAGE INPUT CARD */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-colors">
         <label
-          htmlFor="prompt"
+          htmlFor="invoice-prompt"
           className="block text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2"
         >
           Describe your invoice
         </label>
         <textarea
-          id="prompt"
+          id="invoice-prompt"
           rows={3}
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
@@ -390,7 +428,7 @@ export default function NewInvoicePage() {
               key={i}
               type="button"
               onClick={() => setPromptText(ex.prompt)}
-              className="rounded-lg border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500/50 hover:bg-teal-50/50 hover:text-teal-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:border-teal-500/50 dark:hover:bg-teal-950/40 dark:hover:text-teal-300 transition-all text-left"
+              className="rounded-lg border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-teal-500/50 hover:bg-teal-50/50 hover:text-teal-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:border-teal-500/50 dark:hover:bg-teal-950/40 dark:hover:text-teal-300 transition-all text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               {ex.title}
             </button>
@@ -407,7 +445,7 @@ export default function NewInvoicePage() {
             type="button"
             onClick={handleParseWithAI}
             disabled={isParsing}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-500/20 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50 transition-all"
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-500/20 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {isParsing ? (
               <>
@@ -426,7 +464,7 @@ export default function NewInvoicePage() {
 
       {/* AI Confidence & Missing Fields Banner */}
       {hasParsed && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200/60 bg-teal-50/60 p-4 dark:border-teal-900/60 dark:bg-teal-950/40">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200/60 bg-teal-50/60 p-4 dark:border-teal-900/60 dark:bg-teal-950/40 animate-in fade-in duration-200">
           <div className="flex items-center gap-2.5">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-600 text-white text-xs font-bold">
               ✓
@@ -455,7 +493,7 @@ export default function NewInvoicePage() {
 
       {/* PAYPAL ERROR BANNER */}
       {apiError && (
-        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200">
+        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200 animate-in fade-in duration-200">
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" />
             <div className="flex-1">
@@ -474,14 +512,17 @@ export default function NewInvoicePage() {
       {/* EDITABLE REVIEW FORM */}
       <div className="mt-8 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-colors">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-6">
-          Review & Finalize Invoice
+          Review &amp; Finalize Invoice
         </h2>
 
         {/* Primary Meta Fields */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {/* Client Name */}
           <div className="lg:col-span-2">
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+            <label
+              htmlFor="client-name"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+            >
               Client Name <span className="text-red-500">*</span>
               {missingFields.includes("client_name") && (
                 <span className="ml-2 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -492,6 +533,7 @@ export default function NewInvoicePage() {
             <div className="relative">
               <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="client-name"
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
@@ -507,7 +549,10 @@ export default function NewInvoicePage() {
 
           {/* Client Email */}
           <div className="lg:col-span-2">
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+            <label
+              htmlFor="client-email"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+            >
               Client Email <span className="text-slate-400">(Required to Send)</span>
               {missingFields.includes("client_email") && (
                 <span className="ml-2 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -518,6 +563,7 @@ export default function NewInvoicePage() {
             <div className="relative">
               <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="client-email"
                 type="email"
                 value={clientEmail}
                 onChange={(e) => setClientEmail(e.target.value)}
@@ -533,12 +579,16 @@ export default function NewInvoicePage() {
 
           {/* Currency */}
           <div>
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+            <label
+              htmlFor="currency-select"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+            >
               Currency
             </label>
             <div className="relative">
               <DollarSign className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <select
+                id="currency-select"
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 pl-9 pr-8 py-2 text-sm text-slate-900 dark:border-slate-800 dark:text-slate-100 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
@@ -555,12 +605,16 @@ export default function NewInvoicePage() {
 
           {/* Due Date */}
           <div>
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+            <label
+              htmlFor="due-date"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+            >
               Due Date <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <Calendar className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="due-date"
                 type="date"
                 value={dueDate}
                 min={new Date().toISOString().split("T")[0]}
@@ -571,62 +625,63 @@ export default function NewInvoicePage() {
           </div>
 
           {/* Notes */}
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-              Terms & Notes <span className="text-slate-400">(Optional)</span>
+          <div className="lg:col-span-2">
+            <label
+              htmlFor="notes-input"
+              className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+            >
+              Notes / Terms <span className="text-slate-400">(Optional)</span>
             </label>
             <div className="relative">
               <FileText className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
+                id="notes-input"
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Thank you for your business! Bank transfer details..."
+                placeholder="Thank you for your business!"
                 className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:text-slate-100 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
               />
             </div>
           </div>
         </div>
 
-        {/* LINE ITEMS TABLE */}
-        <div className="mt-10">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+        {/* ITEMS TABLE */}
+        <div className="mt-8 border-t border-slate-100 pt-6 dark:border-slate-800">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
               Line Items
             </h3>
             <button
               type="button"
               onClick={handleAddItem}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100 dark:border-teal-700 dark:bg-teal-950/60 dark:text-teal-300 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Item</span>
             </button>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500 dark:bg-slate-950/60 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-800">
+            <table className="w-full text-left text-sm" role="table">
+              <thead className="bg-slate-50/80 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-950/60 dark:text-slate-400 border-b border-slate-200/80 dark:border-slate-800">
                 <tr>
-                  <th className="px-4 py-3 min-w-[220px]">Item Description</th>
-                  <th className="px-4 py-3 w-24">Qty / Hrs</th>
-                  <th className="px-4 py-3 w-36">Unit Price ({currency})</th>
-                  <th className="px-4 py-3 w-36 text-right">Line Total</th>
-                  <th className="px-2 py-3 w-12 text-center"></th>
+                  <th scope="col" className="p-3 w-1/3">Item Name</th>
+                  <th scope="col" className="p-3">Description</th>
+                  <th scope="col" className="p-3 w-20 text-center">Qty</th>
+                  <th scope="col" className="p-3 w-28">Price</th>
+                  <th scope="col" className="p-3 w-28 text-right">Total</th>
+                  <th scope="col" className="p-2 w-12 text-center" aria-label="Actions"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                 {items.map((item, index) => {
                   const lineTotal = fromCents(
-                    toCents(item.unit_price) * (item.quantity || 1)
+                    toCents(item.quantity) * toCents(item.unit_price) / 100
                   );
-
                   return (
-                    <tr
-                      key={index}
-                      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
-                    >
-                      {/* Name / Description */}
+                    <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      {/* Name */}
                       <td className="p-3">
                         <input
                           type="text"
@@ -634,7 +689,22 @@ export default function NewInvoicePage() {
                           onChange={(e) =>
                             handleItemChange(index, "name", e.target.value)
                           }
-                          placeholder="Item or service name"
+                          aria-label={`Item ${index + 1} name`}
+                          placeholder="e.g. Logo Design"
+                          className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </td>
+
+                      {/* Description */}
+                      <td className="p-3">
+                        <input
+                          type="text"
+                          value={item.description || ""}
+                          onChange={(e) =>
+                            handleItemChange(index, "description", e.target.value)
+                          }
+                          aria-label={`Item ${index + 1} description`}
+                          placeholder="Optional notes"
                           className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
                       </td>
@@ -649,6 +719,7 @@ export default function NewInvoicePage() {
                           onChange={(e) =>
                             handleItemChange(index, "quantity", e.target.value)
                           }
+                          aria-label={`Item ${index + 1} quantity`}
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 text-center focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
                       </td>
@@ -663,6 +734,7 @@ export default function NewInvoicePage() {
                           onChange={(e) =>
                             handleItemChange(index, "unit_price", e.target.value)
                           }
+                          aria-label={`Item ${index + 1} unit price`}
                           className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         />
                       </td>
@@ -678,7 +750,8 @@ export default function NewInvoicePage() {
                           type="button"
                           onClick={() => handleRemoveItem(index)}
                           disabled={items.length <= 1}
-                          className="rounded-lg p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-30 transition-colors"
+                          aria-label={`Remove item ${index + 1}`}
+                          className="rounded-lg p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -709,7 +782,7 @@ export default function NewInvoicePage() {
             type="button"
             onClick={() => handleSubmit(false)}
             disabled={isSubmitting}
-            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {isSubmitting && submitMode === "draft" ? (
               <>
@@ -728,7 +801,7 @@ export default function NewInvoicePage() {
             type="button"
             onClick={() => handleSubmit(true)}
             disabled={isSubmitting}
-            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 hover:bg-teal-500 disabled:opacity-50 transition-all hover:scale-[1.01]"
+            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 hover:bg-teal-500 disabled:opacity-50 transition-all hover:scale-[1.01] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {isSubmitting && submitMode === "send" ? (
               <>
@@ -738,7 +811,7 @@ export default function NewInvoicePage() {
             ) : (
               <>
                 <Send className="h-4 w-4" />
-                <span>Create & Send via PayPal</span>
+                <span>Create &amp; Send via PayPal</span>
               </>
             )}
           </button>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Navbar } from "@/components/Navbar";
+import { DemoBanner } from "@/components/DemoBanner";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -25,8 +26,11 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <div className="flex min-h-screen flex-col">
+            <DemoBanner />
             <Navbar />
-            <div className="flex-1">{children}</div>
+            <main id="main-content" className="flex-1">
+              {children}
+            </main>
           </div>
           <Toaster richColors position="top-right" closeButton />
         </ThemeProvider>

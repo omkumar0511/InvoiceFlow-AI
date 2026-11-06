@@ -600,14 +600,19 @@ export default function InvoiceDetailPage() {
 
       {/* AI REMINDER DRAFTER MODAL */}
       {showReminderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reminder-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+        >
           <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-400">
                   <Sparkles className="h-4 w-4" />
                 </div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                <h3 id="reminder-modal-title" className="font-bold text-slate-900 dark:text-white text-base">
                   AI Payment Reminder Drafter
                 </h3>
               </div>
@@ -708,11 +713,16 @@ export default function InvoiceDetailPage() {
 
       {/* CANCEL CONFIRMATION MODAL */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+        >
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
               <ShieldAlert className="h-6 w-6" />
-              <h3 className="font-bold text-slate-900 dark:text-white text-base">
+              <h3 id="cancel-modal-title" className="font-bold text-slate-900 dark:text-white text-base">
                 Cancel Invoice #{invoice.detail?.invoice_number}?
               </h3>
             </div>

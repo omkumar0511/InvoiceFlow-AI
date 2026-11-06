@@ -13,7 +13,8 @@
     "test:gemini": "tsx scripts/test-gemini.ts",
     "test:phase3": "tsx scripts/test-phase3-flow.ts",
     "test:phase4": "tsx scripts/test-phase4-dashboard.ts",
-    "test:phase5": "tsx scripts/test-phase5-flow.ts"
+    "test:phase5": "tsx scripts/test-phase5-flow.ts",
+    "test:phase6": "tsx scripts/test-phase6-demo.ts"
   },
   "dependencies": {
     "@google/genai": "^3.0.0",

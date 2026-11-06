@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { InvoiceGrid, InvoiceRow } from "@/components/InvoiceGrid";
+import { BusinessSummaryCard } from "@/components/BusinessSummaryCard";
 import { formatMoneyDisplay } from "@/lib/money";
 
 interface DashboardStats {
@@ -142,6 +143,11 @@ export default function DashboardPage() {
           </button>
         </div>
       )}
+
+      {/* AI BUSINESS SUMMARY INSIGHTS */}
+      <div className="mt-8">
+        <BusinessSummaryCard />
+      </div>
 
       {/* FOUR STAT CARDS */}
       <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">

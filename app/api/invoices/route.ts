@@ -12,6 +12,8 @@ import { dbOperations } from "@/lib/db";
 import { env } from "@/lib/env";
 import { fromCents, toCents, calculateInvoiceTotal } from "@/lib/money";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     let body: unknown;

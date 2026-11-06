@@ -138,3 +138,141 @@ Please fix the JSON output according to the schema rules above.`;
 
   return prompt;
 }
+
+// --------------------------------------------------------------------------
+// AI Reminder Drafter
+// --------------------------------------------------------------------------
+
+export const geminiReminderResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    subject: {
+      type: Type.STRING,
+      description: "Email subject line for the payment reminder.",
+    },
+    message: {
+      type: Type.STRING,
+      description:
+        "Polite, professional email message text (2-3 paragraphs) reminding the customer about the payment.",
+    },
+  },
+  required: ["subject", "message"],
+};
+
+export const REMINDER_SYSTEM_INSTRUCTION = `You are InvoiceFlow AI's expert payment follow-up assistant. You write context-aware payment reminders for freelancers to their clients.
+
+RULES:
+1. Tone must strictly follow the requested tone:
+   - "friendly": Warm, collaborative, assuming an innocent oversight, thanking them for the relationship.
+   - "neutral": Clear, polite, professional, direct, matter-of-fact.
+   - "firm": Assertive, highlighting terms, emphasizing urgent resolution, mentioning potential late fees or paused services if applicable, but remaining respectful and professional.
+2. Clearly mention the Invoice Number, Total Amount Due, and Due Date.
+3. If the invoice is OVERDUE, clearly state how many days overdue it is.
+4. If the invoice is UPCOMING (due soon), remind them of the upcoming deadline.
+5. Provide a clear call to action to pay via PayPal.
+6. Do NOT invent invoice facts or payment links.`;
+
+export function buildReminderUserPrompt(params: {
+  clientName: string;
+  invoiceNumber: string;
+  amount: string;
+  currency: string;
+  dueDate: string;
+  daysDiff: number; // positive = days overdue, negative = days until due, 0 = due today
+  tone: "friendly" | "neutral" | "firm";
+  businessName: string;
+}): string {
+  const {
+    clientName,
+    invoiceNumber,
+    amount,
+    currency,
+    dueDate,
+    daysDiff,
+    tone,
+    businessName,
+  } = params;
+
+  let timingText = "";
+  if (daysDiff > 0) {
+    timingText = `OVERDUE by ${daysDiff} day(s) (Was due on ${dueDate})`;
+  } else if (daysDiff < 0) {
+    timingText = `Upcoming due date in ${Math.abs(daysDiff)} day(s) (Due on ${dueDate})`;
+  } else {
+    timingText = `Due TODAY (${dueDate})`;
+  }
+
+  return `Please draft a payment reminder email with tone: "${tone.toUpperCase()}".
+
+INVOICE DETAILS:
+- Invoicer / Merchant: ${businessName}
+- Client Name: ${clientName}
+- Invoice Number: #${invoiceNumber}
+- Amount Due: ${currency} ${amount}
+- Payment Status: ${timingText}
+
+Draft a subject line and a message body. Return only structured JSON with "subject" and "message".`;
+}
+
+// --------------------------------------------------------------------------
+// AI Business Summary & Insights
+// --------------------------------------------------------------------------
+
+export const geminiSummaryResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    narrative: {
+      type: Type.STRING,
+      description:
+        "A concise, executive summary (2-3 sentences) evaluating the freelancer's current cash flow, outstanding collections, and revenue performance based strictly on the provided numbers.",
+    },
+    actionable_suggestion: {
+      type: Type.STRING,
+      description:
+        "One concrete, high-impact tactical business recommendation (1-2 sentences), e.g. following up on overdue invoices, requesting milestone deposits, or adjusting payment terms.",
+    },
+  },
+  required: ["narrative", "actionable_suggestion"],
+};
+
+export const BUSINESS_SUMMARY_SYSTEM_INSTRUCTION = `You are InvoiceFlow AI's virtual CFO and business intelligence advisor for freelancers.
+
+CRITICAL RULES:
+1. STRICT DATA GROUNDING: You will receive PRECOMPUTED financial metrics calculated by server code. Do NOT recalculate or invent any numbers. Reference ONLY the exact dollar amounts and counts provided.
+2. Keep the narrative punchy, encouraging, and highly professional (2-3 sentences max).
+3. Provide exactly ONE actionable suggestion (1-2 sentences) to improve cash flow velocity.`;
+
+export function buildBusinessSummaryUserPrompt(params: {
+  totalInvoiced: string;
+  paid: string;
+  outstanding: string;
+  overdue: string;
+  currency: string;
+  counts: {
+    total: number;
+    paid: number;
+    outstanding: number;
+    overdue: number;
+    draft: number;
+  };
+  topClients?: Array<{ name: string; totalAmount: string }>;
+}): string {
+  return `Here are the precomputed financial metrics for the business:
+
+FINANCIAL TOTALS (Strictly accurate code calculations):
+- Total Invoiced: ${params.currency} ${params.totalInvoiced} across ${params.counts.total} invoices
+- Paid / Collected: ${params.currency} ${params.paid} (${params.counts.paid} invoices)
+- Outstanding / Pending: ${params.currency} ${params.outstanding} (${params.counts.outstanding} invoices)
+- Overdue: ${params.currency} ${params.overdue} (${params.counts.overdue} invoices)
+- Drafts waiting to send: ${params.counts.draft}
+
+${
+  params.topClients && params.topClients.length > 0
+    ? `TOP CLIENTS BY VOLUME:\n${params.topClients
+        .map((c) => `- ${c.name}: ${params.currency} ${c.totalAmount}`)
+        .join("\n")}`
+    : ""
+}
+
+Write a concise narrative and one actionable suggestion. Return strictly JSON with "narrative" and "actionable_suggestion".`;
+}

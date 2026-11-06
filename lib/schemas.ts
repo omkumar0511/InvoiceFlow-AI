@@ -88,3 +88,29 @@ export const createInvoiceRequestSchema = z.object({
 
 export type CreateInvoiceRequest = z.infer<typeof createInvoiceRequestSchema>;
 
+// Reminder Schemas
+export const draftReminderRequestSchema = z.object({
+  tone: z.enum(["friendly", "neutral", "firm"]).default("friendly"),
+});
+
+export const reminderOutputSchema = z.object({
+  subject: z.string().min(1, "Subject is required"),
+  message: z.string().min(1, "Message is required"),
+});
+
+export type ReminderOutput = z.infer<typeof reminderOutputSchema>;
+
+export const sendReminderBodySchema = z.object({
+  subject: z.string().trim().min(1, "Subject is required"),
+  message: z.string().trim().min(1, "Message body is required"),
+});
+
+// Business Summary Schema
+export const businessSummarySchema = z.object({
+  narrative: z.string().min(1),
+  actionable_suggestion: z.string().min(1),
+});
+
+export type BusinessSummary = z.infer<typeof businessSummarySchema>;
+
+

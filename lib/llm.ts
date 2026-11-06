@@ -91,22 +91,26 @@ export class GeminiLLMProvider implements LLMProvider {
           continue;
         }
 
-        // Check for 429 / Rate limit / RESOURCE_EXHAUSTED
-        const isRateLimitError =
+        // Check for 429 / 503 / Rate limit / High demand spikes
+        const isTransientError =
           statusCode === 429 ||
+          statusCode === 503 ||
           errorMessage.includes("429") ||
+          errorMessage.includes("503") ||
           errorMessage.includes("RESOURCE_EXHAUSTED") ||
+          errorMessage.includes("UNAVAILABLE") ||
+          errorMessage.includes("high demand") ||
           errorMessage.includes("Too Many Requests");
 
-        if (isRateLimitError) {
+        if (isTransientError) {
           attempts++;
           if (attempts > maxRetries) {
-            console.error(`❌ Gemini 429 rate limit reached after ${maxRetries} retries.`);
+            console.error(`❌ Gemini transient error reached after ${maxRetries} retries.`);
             throw new BusyAIError("AI is busy, please try again in a moment.");
           }
 
           console.warn(
-            `⚠️ Gemini 429 rate limit encountered. Retrying in ${delayMs}ms (Attempt ${attempts}/${maxRetries})...`
+            `⚠️ Gemini transient error (${statusCode || "busy"}). Retrying in ${delayMs}ms (Attempt ${attempts}/${maxRetries})...`
           );
           await new Promise((resolve) => setTimeout(resolve, delayMs));
           delayMs *= 2; // Exponential backoff (1s -> 2s -> 4s)

@@ -11,11 +11,12 @@ export const metadata: Metadata = {
     "Turn plain English invoice descriptions into official PayPal Invoices using Google Gemini AI and PayPal Invoicing API.",
   icons: {
     icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
       { url: "/icon.png", type: "image/png" },
       { url: "/favicon.ico" },
     ],
-    apple: [{ url: "/icon.png" }],
-    shortcut: "/icon.png",
+    apple: [{ url: "/apple-touch-icon.png" }],
+    shortcut: "/icon.svg",
   },
 };
 

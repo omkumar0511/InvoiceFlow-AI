@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="brand-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0d9488" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <!-- Rounded Rect with Transparent Background Outside -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#brand-grad)" />
+  <!-- Centered Lightning Bolt (Lucide Zap) -->
+  <g transform="translate(14, 14) scale(1.5)">
+    <polygon
+      points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+      fill="rgba(255, 255, 255, 0.2)"
+      stroke="#ffffff"
+      stroke-width="2.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

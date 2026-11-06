@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest",
-    "test:paypal": "tsx scripts/test-paypal.ts"
+    "test:paypal": "tsx scripts/test-paypal.ts",
+    "test:gemini": "tsx scripts/test-gemini.ts"
   },
   "dependencies": {
     "@google/genai": "^3.0.0",
